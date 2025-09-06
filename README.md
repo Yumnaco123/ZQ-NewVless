@@ -14,7 +14,7 @@
   * `/?mode=auto&direct&s5=user:pass@host:port&proxyip=host:port`（三者都有：直连→SOCKS5→ProxyIP）
   * `/?mode=auto&s5=user:pass@host:port&proxyip=host:port&direct`（三者都有：SOCKS5→ProxyIP→直连）
   * `/?mode=auto&proxyip=host:port&s5=user:pass@host:port&direct`（三者都有：ProxyIP→SOCKS5→直连）
-  * **上面只是示例，可自由搭配参数以满足不同场景需求**(不能使用`/?mode=proxy&proxyip=host:port`（仅ProxyIP）)
+  * **上面只是示例，可自由搭配参数以满足不同场景需求**(不能使用`/?mode=proxy&proxyip=host:port(仅ProxyIP)`)
 ## 配置参考
 ![alt text](1.png)
 ![alt text](2.png)
