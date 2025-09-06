@@ -18,5 +18,5 @@
   * **上面只是示例，可自由搭配参数以满足不同场景需求**(不能使用`/?mode=proxy&proxyip=host:port`（仅ProxyIP）)
 ## 配置参考
 ![alt text](1.png)
-![alt text](1.png)
+![alt text](2.png)
 
