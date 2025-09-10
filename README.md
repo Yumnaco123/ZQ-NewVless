@@ -7,7 +7,7 @@
 | 名称 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- |
 | UUID | 建议填 | ef9d104e-ca0e-4202-ba4b-a0afb969c747 | | VLESS 用户 ID 和访问密码|
-| DOMAIN | 否 | 当前 Worker 域名 | - | cloudflare优选域名 |
+| DOMAIN | 否 | 当前 Worker 域名 | | cloudflare优选域名 |
 | PORT | 否 | 443 |  | cloudflare优选域名端口 |
 | S5 | 否 |  | user:pass@host:1080 或 host:1080 | SOCKS5 |
 | PROXY_IP | 否 |  | proxy.example.com:443或 proxy.example.com|反代cloudflare |
