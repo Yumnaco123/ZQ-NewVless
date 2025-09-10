@@ -10,7 +10,7 @@
 | DOMAIN | 否 | 当前 Worker 域名 | - | cloudflare优选域名 |
 | PORT | 否 | 443 |  | cloudflare优选域名端口 |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 |
-| PROXY_IP | 否 | - | proxy.example.com:443或 proxy.example.com| 备用直连入口（host:port） |
+| PROXY_IP | 否 | - | proxy.example.com:443或 proxy.example.com|反代cloudflare |
 | PROXY_TIMEOUT | 否 | 800 |  | ProxyIP 首字节等待超时（毫秒），超时触发回退（如果proxyip优先的节点无法使用，可调节此值） |
 | URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless| https://baidu.com |输入UUID不正确会跳转到这个网址|
 
