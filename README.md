@@ -1,4 +1,5 @@
 # ZQ-NewVless
+![v2rayN](3.png)
 
 轻量 Cloudflare Workers VLESS 搭建，支持直连、SOCKS5 回退与 ProxyIP 回退，并自带前端页面展示多种路径组合与复制按钮。
 
