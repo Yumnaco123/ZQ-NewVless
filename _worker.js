@@ -346,7 +346,7 @@ export default {
 			const proxyIp = env.PROXY_IP;
 			const variants = [];
 			variants.push({ label: '仅直连', raw: '/?mode=direct' });
-			if (s5) variants.push({ label: '仅SOCKS）', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
+			if (s5) variants.push({ label: '仅SOCKS5', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
 			if (s5) variants.push({ label: '直连优先，回退SOCKS5', raw: `/?mode=auto&direct&s5=${encodeURIComponent(String(s5))}` });
 			if (s5) variants.push({ label: 'SOCKS5优先，回退直连', raw: `/?mode=auto&s5=${encodeURIComponent(String(s5))}&direct` });
 			if (proxyIp) variants.push({ label: '直连优先，回退ProxyIP', raw: `/?mode=auto&direct&proxyip=${encodeURIComponent(String(proxyIp))}` });
