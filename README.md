@@ -11,7 +11,10 @@
 | PORT | 否 | 443 | 8443 | 优选域名端口 |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 |
 | PROXY_IP | 否 | - | proxy.example.com:443或 proxy.example.com| 备用直连入口（host:port） |
+| PROXY_TIMEOUT | 否 | 800 | 600  | ProxyIP 首字节等待超时（毫秒），超时触发回退 |
 | URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless| https://baidu.com |输入UUID不正确会跳转到这个网址|
+
+
 
 
 
@@ -32,7 +35,7 @@
   * `/?mode=auto&proxyip=host:port&direct&s5=user:pass@host:port`（三者：ProxyIP→直连→SOCKS5）
   * `/?mode=auto&proxyip=host:port&s5=user:pass@host:port&direct`（三者：ProxyIP→SOCKS5→直连）
 
-> 注意：不支持“仅 ProxyIP”模式。
+> 注意：不支持“仅 ProxyIP”模式
 
 ## S5/PROXY_IP 填写规范
 
