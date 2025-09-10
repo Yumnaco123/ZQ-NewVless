@@ -4,13 +4,13 @@
 
 ## 环境变量（必看）
 
-| 名称 | 必填 | 默认值 | 示例 | 说明 |
-| --- | --- | --- | --- | --- |
-| UUID | 否 | 内置默认 | 38923c09-3a22-478e-9778-cf18f424b80e | VLESS 用户 ID |
-| DOMAIN | 否 | 当前 Worker 域名 | newvle.vpnjacky.dpdns.org | 优选直连入口域名（address）。不填则使用 Worker 域名 |
-| PORT | 否 | 443 | 8443 | 优选域名的端口（address 的端口） |
+| 名称 | 必填 | 默认值 |说明 |
+| --- | --- | --- | --- |
+| UUID | 是 | 内置默认 | VLESS 用户 ID |
+| DOMAIN | 否 | 当前 Worker 域名 |  优选直连入口域名（address），不填则使用 Worker 域名 |
+| PORT | 否 | 443 | 优选域名的端口（address 的端口） |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 代理（支持带认证或无认证） |
-| PROXY_IP | 否 | - | proxy.example.com:443 | 备用直连入口（host:port），无认证；用于回退 |
+| PROXY_IP | 否 | - |  反代cloudfalre |
 
 
 ## 路径参数（前端会自动生成多种组合）
