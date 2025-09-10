@@ -6,7 +6,7 @@
 
 | 名称 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- |
-| UUID | 是 | ef9d104e-ca0e-4202-ba4b-a0afb969c747 | - | VLESS 用户 ID |
+| UUID | 建议填 | ef9d104e-ca0e-4202-ba4b-a0afb969c747 | - | VLESS 用户 ID |
 | DOMAIN | 否 | 当前 Worker 域名 | - | 优选域名 |
 | PORT | 否 | 443 | 8443 | 优选域名端口 |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 |
