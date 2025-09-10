@@ -43,6 +43,10 @@
   - 带认证：`user:pass@host:port`
 - PROXY_IP：`host:port` 或 `ip:port`或`ip`
 
-## 配置参考
+## 手搓节点
 ![v2rayN](1.png)
 ![nekobox](2.png)
+## 致谢
+
+本项目参考并基于以下开源项目进行改进与优化：
+- workers-vless: https://github.com/ymyuuu/workers-vless
