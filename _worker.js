@@ -16,6 +16,7 @@ export default {
 			const s5Param = u.searchParams.get('s5');
 			const proxyParam = u.searchParams.get('proxyip');
 			const path = s5Param ? s5Param : u.pathname.slice(1);
+			const PROXY_FIRST_BYTE_TIMEOUT_MS = +(env.PROXY_TIMEOUT || 800);
 
 			// 解析SOCKS5和ProxyIP
 			const socks5 = path.includes('@') ? (() => {
@@ -194,6 +195,7 @@ export default {
 
 					// TCP连接
 					let sock = null;
+					let handledInline = false;
 					for (const method of getOrder()) {
 						try {
 							if (method === 'direct') {
@@ -208,17 +210,73 @@ export default {
 								break;
 							} else if (method === 'proxy' && PROXY_IP) {
 								const [ph, pp = port] = PROXY_IP.split(':');
-								sock = connect({
+								const tentative = connect({
 									hostname: ph,
 									port: +pp || port
 								});
-								await sock.opened;
+								await tentative.opened;
+								// 先发首包，再在限定时间内等待首字节返回
+								const tw = tentative.writable.getWriter();
+								await tw.write(payload);
+								tw.releaseLock();
+								const reader = tentative.readable.getReader();
+								let first;
+								try {
+									first = await Promise.race([
+										reader.read(),
+										new Promise(resolve => setTimeout(() => resolve({ timeout: true }), PROXY_FIRST_BYTE_TIMEOUT_MS))
+									]);
+								} catch {}
+								if (!first || first.timeout || first.done || !first.value || first.value.byteLength === 0) {
+									try { reader.releaseLock(); } catch {}
+									try { tentative.close(); } catch {}
+									// 超时/无返回，回退到下一个出站
+									continue;
+								}
+								// 额外检查：如果看起来是 HTTP 文本或 TLS Alert，也判定为无效并回退
+								{
+									const chunk = new Uint8Array(first.value);
+									const looksHTTP = chunk.length >= 5 && chunk[0] === 0x48 && chunk[1] === 0x54 && chunk[2] === 0x54 && chunk[3] === 0x50 && chunk[4] === 0x2f; // 'HTTP/'
+									const looksHTML = chunk.length >= 1 && (chunk[0] === 0x3c /* '<' */);
+									const isTLSAlert = chunk.length >= 1 && chunk[0] === 0x15; // TLS Alert content type
+									if (looksHTTP || looksHTML || isTLSAlert) {
+										try { reader.releaseLock(); } catch {}
+										try { tentative.close(); } catch {}
+										continue;
+									}
+								}
+								// 确认采用 proxy 通道，已读的首块立即转发
+								sock = tentative;
+								remote = sock;
+								let sentFirst = false;
+								if (ws.readyState === 1) {
+									ws.send(new Uint8Array([...header, ...new Uint8Array(first.value)]));
+									sentFirst = true;
+								}
+								// 持续转发后续数据
+								(async () => {
+									try {
+										for (;;) {
+											const { value, done } = await reader.read();
+											if (done) break;
+											if (ws.readyState === 1) ws.send(value);
+										}
+									} catch {}
+									finally {
+										ws.readyState === 1 && ws.close();
+									}
+								})();
+								handledInline = true;
 								break;
 							}
 						} catch {}
 					}
 
 					if (!sock) return;
+
+					if (handledInline) {
+						return;
+					}
 
 					remote = sock;
 					const w = sock.writable.getWriter();
@@ -260,13 +318,13 @@ export default {
 				const redirectUrl = env.URL || 'https://github.com/BAYUEQI/ZQ-NewVless';
 				return Response.redirect(redirectUrl, 302);
 			}
-			const buildVlessUriWithUUID = (customRawPathQuery, uuid) => {
+			const buildVlessUriWithUUID = (customRawPathQuery, uuid, label) => {
 				const requestUrl = new URL(req.url);
 				const workerHost = requestUrl.hostname;
 				const preferred = env.DOMAIN || workerHost;
 				const edge = preferred;
 				const port = +(env.PORT || 443);
-				const tag = preferred;
+				const tag = label ? String(label) : preferred;
 				const s5 = env.S5;
 				const proxyIp = env.PROXY_IP;
 				let rawPathQuery = customRawPathQuery;
@@ -288,7 +346,7 @@ export default {
 			const proxyIp = env.PROXY_IP;
 			const variants = [];
 			variants.push({ label: '仅直连', raw: '/?mode=direct' });
-			if (s5) variants.push({ label: '仅SOCKS5（通过路径传参）', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
+			if (s5) variants.push({ label: '仅SOCKS）', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
 			if (s5) variants.push({ label: '直连优先，回退SOCKS5', raw: `/?mode=auto&direct&s5=${encodeURIComponent(String(s5))}` });
 			if (s5) variants.push({ label: 'SOCKS5优先，回退直连', raw: `/?mode=auto&s5=${encodeURIComponent(String(s5))}&direct` });
 			if (proxyIp) variants.push({ label: '直连优先，回退ProxyIP', raw: `/?mode=auto&direct&proxyip=${encodeURIComponent(String(proxyIp))}` });
@@ -303,7 +361,7 @@ export default {
 				variants.push({ label: 'ProxyIP→直连→SOCKS5', raw: `/?mode=auto&proxyip=${encodeURIComponent(String(proxyIp))}&direct&s5=${encodeURIComponent(String(s5))}` });
 				variants.push({ label: 'ProxyIP→SOCKS5→直连', raw: `/?mode=auto&proxyip=${encodeURIComponent(String(proxyIp))}&s5=${encodeURIComponent(String(s5))}&direct` });
 			}
-			const lines = variants.map(v => buildVlessUriWithUUID(v.raw, UUID)).join('\n');
+			const lines = variants.map(v => buildVlessUriWithUUID(v.raw, UUID, v.label)).join('\n');
 			const b64 = btoa(unescape(encodeURIComponent(lines)));
 			return new Response(b64 + '\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
 		}
@@ -329,13 +387,13 @@ export default {
 			const userUUID = UUID;
 			
 			// Helper to build VLESS URI with custom UUID
-			const buildVlessUriWithUUID = (customRawPathQuery, uuid) => {
+			const buildVlessUriWithUUID = (customRawPathQuery, uuid, label) => {
 				const requestUrl = new URL(req.url);
 				const workerHost = requestUrl.hostname;
 				const preferred = env.DOMAIN || workerHost;
 				const edge = preferred;
 				const port = +(env.PORT || 443);
-				const tag = preferred;
+				const tag = label ? String(label) : preferred;
 				const s5 = env.S5;
 				const proxyIp = env.PROXY_IP;
 				let rawPathQuery = customRawPathQuery;
@@ -380,7 +438,7 @@ export default {
 				variants.push({ label: 'ProxyIP→SOCKS5→直连', raw: `/?mode=auto&proxyip=${encodeURIComponent(String(proxyIp))}&s5=${encodeURIComponent(String(s5))}&direct` });
 			}
 			const itemsHtml = variants.map(v=>{
-				const full = buildVlessUriWithUUID(v.raw, userUUID);
+				const full = buildVlessUriWithUUID(v.raw, userUUID, v.label);
 				return `<div class="item"><div class="label">${v.label}</div><div class="box">${full}</div><div class="row"><button class="copy" data-text="${full.replace(/"/g,'&quot;')}">复制</button></div></div>`;
 			}).join('');
 			const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji';margin:0;background:#0b1020;color:#e6e9ef} .wrap{max-width:980px;margin:0 auto;padding:24px;position:relative} h1{margin:4px 0 12px;font-size:22px} .topbar{position:absolute;right:24px;top:24px} .gh{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:#12182e;border:1px solid #24304f;color:#e6e9ef;text-decoration:none} .gh:hover{background:#1a2240} .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px} .item{background:#12182e;border:1px solid #24304f;border-radius:12px;padding:14px} .label{font-weight:700;margin-bottom:8px} .box{background:#0e1427;border:1px solid #24304f;border-radius:8px;padding:12px;word-break:break-all;font-size:12px} .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap} button, a.btn{background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;text-decoration:none}</style></head><body><div class="wrap"><div class="topbar"><a class="gh" href="https://github.com/BAYUEQI/ZQ-NewVless" target="_blank" rel="nofollow noopener" aria-label="GitHub 项目"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg></a></div><h1>ZQ-NewVless</h1><div class="item"><div class="label">订阅链接</div><div class="box">${subUrl}</div><div class="row"><button class="copy" data-text="${subUrl}">复制订阅</button><a class="btn" href="${subUrl}" target="_blank" rel="nofollow noopener">打开订阅</a></div></div><div class="grid">${itemsHtml}</div></div><script>(function(){function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='absolute';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}document.body.removeChild(ta);return ok;}async function doCopy(btn){const t=btn.getAttribute('data-text');if(!t)return;let ok=false;if(navigator.clipboard&&navigator.clipboard.writeText){try{await navigator.clipboard.writeText(t);ok=true;}catch(e){ok=false;}}if(!ok){ok=fallbackCopy(t);}btn.textContent= ok ? '已复制' : '复制失败';setTimeout(()=>btn.textContent='复制',1400);}document.querySelectorAll('button.copy').forEach(b=>b.addEventListener('click',e=>{doCopy(e.currentTarget);}));})();</script></body></html>`;
