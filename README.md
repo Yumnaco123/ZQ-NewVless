@@ -11,7 +11,7 @@
 | PORT | 否 | 443 | 8443 | 优选域名的端口（address 的端口） |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 代理（支持带认证或无认证） |
 | PROXY_IP | 否 | - | proxy.example.com:443 | 备用直连入口（host:port），无认证；用于回退 |
-|INVALID_UUID_REDIRECT| 否 | github.com/BAYUEQI/ZQ-NewVless| baidu.com |输入UUID不正确会跳转到这个网址|
+| URL | 否 | github.com/BAYUEQI/ZQ-NewVless| baidu.com |输入UUID不正确会跳转到这个网址|
 
 重要行为：
 - 链接中的 host 与 SNI 始终使用当前 Worker 域名（用于 TLS/SNI 与 WS Host）。
