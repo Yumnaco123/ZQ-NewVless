@@ -7,8 +7,8 @@
 | 名称 | 必填 | 默认值 |说明 |
 | --- | --- | --- | --- |
 | UUID | 是 | 内置默认 | VLESS 用户 ID |
-| DOMAIN | 否 | 当前 Worker 域名 |  优选直连入口域名（address），不填则使用 Worker 域名 |
-| PORT | 否 | 443 | 优选域名的端口（address 的端口） |
+| DOMAIN | 否 | 当前 Worker 域名 |  优选域名，不填则使用 Worker 域名 |
+| PORT | 否 | 443 | 优选域名的端口 |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 代理（支持带认证或无认证） |
 | PROXY_IP | 否 | - |  反代cloudfalre |
 
