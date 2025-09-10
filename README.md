@@ -2,16 +2,20 @@
 
 轻量 Cloudflare Workers VLESS 搭建，支持直连、SOCKS5 回退与 ProxyIP 回退，并自带前端页面展示多种路径组合与复制按钮。
 
-## 环境变量（必看）
+## 环境变量
 
-| 名称 | 必填 | 默认值 |说明 |
-| --- | --- | --- | --- |
-| UUID | 是 | 内置默认 | VLESS 用户 ID |
-| DOMAIN | 否 | 当前 Worker 域名 |  优选域名，不填则使用 Worker 域名 |
-| PORT | 否 | 443 | 优选域名的端口 |
+| 名称 | 必填 | 默认值 | 示例 | 说明 |
+| --- | --- | --- | --- | --- |
+| UUID | 否 | 内置默认 | 38923c09-3a22-478e-9778-cf18f424b80e | VLESS 用户 ID |
+| DOMAIN | 否 | 当前 Worker 域名 | newvle.vpnjacky.dpdns.org | 优选直连入口域名（address）。不填则使用 Worker 域名 |
+| PORT | 否 | 443 | 8443 | 优选域名的端口（address 的端口） |
 | S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 代理（支持带认证或无认证） |
-| PROXY_IP | 否 | - |  反代cloudfalre |
+| PROXY_IP | 否 | - | proxy.example.com:443 | 备用直连入口（host:port），无认证；用于回退 |
+|INVALID_UUID_REDIRECT| 否 | github.com/BAYUEQI/ZQ-NewVless| baidu.com |输入UUID不正确会跳转到这个网址|
 
+重要行为：
+- 链接中的 host 与 SNI 始终使用当前 Worker 域名（用于 TLS/SNI 与 WS Host）。
+- 客户端连接的 address=DOMAIN、port=PORT（未设置则回落为 Worker 域名与 443）。
 
 ## 路径参数（前端会自动生成多种组合）
 
@@ -37,8 +41,8 @@
 - S5：
   - 无认证：`host:port`
   - 带认证：`user:pass@host:port`
-- PROXY_IP：`host:port` 或 `ip:port`或`ip`
+- PROXY_IP：`host:port` 或 `ip:port`或`ip`（不支持认证）
 
-## 手动配置参考
+## 配置参考
 ![v2rayN](1.png)
 ![nekobox](2.png)
