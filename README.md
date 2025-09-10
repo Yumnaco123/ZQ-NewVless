@@ -13,9 +13,7 @@
 | PROXY_IP | 否 | - | proxy.example.com:443或 proxy.example.com| 备用直连入口（host:port） |
 | URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless| https://baidu.com |输入UUID不正确会跳转到这个网址|
 
-重要行为：
-- 链接中的 host 与 SNI 始终使用当前 Worker 域名（用于 TLS/SNI 与 WS Host）。
-- 客户端连接的 address=DOMAIN、port=PORT（未设置则回落为 Worker 域名与 443）。
+
 
 ## 路径参数（前端会自动生成多种组合）
 
