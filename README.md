@@ -12,7 +12,7 @@
 | S5 | 否 |  | user:pass@host:1080 或 host:1080 | SOCKS5 |
 | PROXY_IP | 否 |  | proxy.example.com:443或 proxy.example.com|反代cloudflare |
 | PROXY_TIMEOUT | 否 | 800 |  | ProxyIP 首字节等待超时（毫秒），超时触发回退（如果proxyip优先的节点无法使用，可调节此值） |
-| URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless|  |输入UUID不正确会跳转到这个网址|
+| URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless|  |输入UUID不正确会跳转到这个网址(记得带上htttps或者http)|
 
 
 
