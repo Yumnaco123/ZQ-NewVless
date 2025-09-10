@@ -6,11 +6,11 @@
 
 | 名称 | 必填 | 默认值 | 示例 | 说明 |
 | --- | --- | --- | --- | --- |
-| UUID | 否 | 内置默认 | 38923c09-3a22-478e-9778-cf18f424b80e | VLESS 用户 ID |
-| DOMAIN | 否 | 当前 Worker 域名 | newvle.vpnjacky.dpdns.org | 优选直连入口域名（address）。不填则使用 Worker 域名 |
-| PORT | 否 | 443 | 8443 | 优选域名的端口（address 的端口） |
-| S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 代理（支持带认证或无认证） |
-| PROXY_IP | 否 | - | proxy.example.com:443 | 备用直连入口（host:port），无认证；用于回退 |
+| UUID | 是 | ef9d104e-ca0e-4202-ba4b-a0afb969c747 | - | VLESS 用户 ID |
+| DOMAIN | 否 | 当前 Worker 域名 | - | 优选域名 |
+| PORT | 否 | 443 | 8443 | 优选域名端口 |
+| S5 | 否 | - | user:pass@host:1080 或 host:1080 | SOCKS5 |
+| PROXY_IP | 否 | - | proxy.example.com:443或 proxy.example.com| 备用直连入口（host:port） |
 | URL | 否 | https://github.com/BAYUEQI/ZQ-NewVless| https://baidu.com |输入UUID不正确会跳转到这个网址|
 
 重要行为：
@@ -41,7 +41,7 @@
 - S5：
   - 无认证：`host:port`
   - 带认证：`user:pass@host:port`
-- PROXY_IP：`host:port` 或 `ip:port`或`ip`（不支持认证）
+- PROXY_IP：`host:port` 或 `ip:port`或`ip`
 
 ## 配置参考
 ![v2rayN](1.png)
