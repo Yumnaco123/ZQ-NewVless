@@ -315,8 +315,7 @@ export default {
 				return new Response('missing uuid', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 			}
 			if (inputUUID !== UUID) {
-				const redirectUrl = env.URL || 'https://github.com/BAYUEQI/ZQ-NewVless';
-				return Response.redirect(redirectUrl, 302);
+				return new Response('UUID错误，请检查后重新输入', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 			}
 			const buildVlessUriWithUUID = (customRawPathQuery, uuid, label) => {
 				const requestUrl = new URL(req.url);
@@ -368,7 +367,7 @@ export default {
 
 		// UUID input interface at root
 		if (url.pathname === '/' || url.pathname === '/index.html') {
-			const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;display:flex;min-height:100vh;align-items:center;justify-content:center}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:500px;width:90%;padding:32px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus{outline:none;border-color:#2f6fed}button{width:100%;background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px;font-size:16px;font-weight:600;cursor:pointer}button:hover{background:#1e5bb8}.error{margin-top:12px;color:#ff6b6b;text-align:center;font-size:14px}</style></head><body><div class="card"><h1>ZQ-NewVless</h1><form method="get"><div class="form-group"><label for="uuid">请输入UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入正确的UUID(输错会跳转到神秘网站哦)"></div><button type="submit">进入节点界面</button></form><div class="error" id="error" style="display:none">UUID错误</div></div><script>document.querySelector('form').addEventListener('submit',function(e){e.preventDefault();const uuid=document.getElementById('uuid').value.trim();if(!uuid)return;window.location.href='/' + uuid;});</script></body></html>`;
+			const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;display:flex;min-height:100vh;align-items:center;justify-content:center}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);max-width:500px;width:90%;padding:32px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus{outline:none;border-color:#2f6fed}button{width:100%;background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px;font-size:16px;font-weight:600;cursor:pointer}button:hover{background:#1e5bb8}.error{margin-top:12px;color:#ff6b6b;text-align:center;font-size:14px}</style></head><body><div class="card"><h1>ZQ-NewVless</h1><form method="get"><div class="form-group"><label for="uuid">请输入UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入正确的UUID"></div><button type="submit">进入节点界面</button></form><div class="error" id="error" style="display:none">UUID错误，请检查后重新输入</div></div><script>document.querySelector('form').addEventListener('submit',function(e){e.preventDefault();const uuid=document.getElementById('uuid').value.trim();if(!uuid)return;fetch('/' + uuid).then(response=>{if(response.ok){window.location.href='/' + uuid;}else{const errorDiv=document.getElementById('error');errorDiv.style.display='block';errorDiv.textContent='UUID错误，请检查后重新输入';}}).catch(()=>{const errorDiv=document.getElementById('error');errorDiv.style.display='block';errorDiv.textContent='UUID错误，请检查后重新输入';});});</script></body></html>`;
 			return new Response(html, {headers:{'content-type':'text/html; charset=utf-8'}});
 		}
 
@@ -379,8 +378,7 @@ export default {
 			
 			// Check if input UUID matches environment UUID
 			if (inputUUID !== UUID) {
-				const redirectUrl = env.URL || 'https://github.com/BAYUEQI/ZQ-NewVless';
-				return Response.redirect(redirectUrl, 302);
+				return new Response('UUID错误，请检查后重新输入', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 			}
 
 			// Use environment UUID
@@ -420,7 +418,7 @@ export default {
 			const proxyIp = env.PROXY_IP;
 			const variants = [];
 			variants.push({ label: '仅直连', raw: '/?mode=direct' });
-			if (s5) variants.push({ label: '仅SOCKS5（通过路径传参）', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
+			if (s5) variants.push({ label: '仅SOCKS5', raw: `/?mode=s5&s5=${encodeURIComponent(String(s5))}` });
 			// 不展示仅 ProxyIP 模式（不可用）
 			if (s5) variants.push({ label: '直连优先，回退SOCKS5', raw: `/?mode=auto&direct&s5=${encodeURIComponent(String(s5))}` });
 			if (s5) variants.push({ label: 'SOCKS5优先，回退直连', raw: `/?mode=auto&s5=${encodeURIComponent(String(s5))}&direct` });
