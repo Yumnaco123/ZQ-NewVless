@@ -100,9 +100,7 @@
 
 欢迎提交Issue和Pull Request！
 
-## 📄 许可证
 
-MIT License
 
 ## 🔗 相关链接
 
