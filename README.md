@@ -106,10 +106,8 @@ MIT License
 
 ## 🔗 相关链接
 
-- [Cloudflare Workers](https://workers.cloudflare.com/)
-- [VLESS协议](https://github.com/XTLS/Xray-core)
-- [优选工具](https://ipspeed.520jacky.dpdns.org/index.html)
+- [workers-vless](https://github.com/ymyuuu/workers-vless)
 
----
+
 
 **注意**：请遵守当地法律法规，合理使用本工具。
