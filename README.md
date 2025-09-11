@@ -73,7 +73,7 @@
 
 
 ## 手搓节点
-路径参数（前端会自动生成多种组合）
+路径参数
 
 * `/?mode=direct`（仅直连）
 * `/?mode=s5&s5=user:pass@host:port`（仅SOCKS5）
