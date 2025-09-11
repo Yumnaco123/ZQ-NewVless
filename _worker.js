@@ -10,23 +10,12 @@ export default {
 		const getUserConfig = async () => {
 			try {
 				const config = await env.NewVless?.get('user_config', 'json');
-				return config || {
-					uuid: 'ef9d104e-ca0e-4202-ba4b-a0afb969c747',
-					domain: '',
-					port: '443',
-					s5: '',
-					proxyIp: '',
-					proxyTimeout: '800'
-				};
+				const merged = config || { uuid: 'ef9d104e-ca0e-4202-ba4b-a0afb969c747', domain: '', port: '443', s5: '', proxyIp: '', fallbackTimeout: '1000' };
+				// 兼容老字段 proxyTimeout → fallbackTimeout
+				if (!merged.fallbackTimeout && merged.proxyTimeout) merged.fallbackTimeout = merged.proxyTimeout;
+				return merged;
 			} catch {
-				return {
-					uuid: 'ef9d104e-ca0e-4202-ba4b-a0afb969c747',
-					domain: '',
-					port: '443',
-					s5: '',
-					proxyIp: '',
-					proxyTimeout: '800'
-				};
+				return { uuid: 'ef9d104e-ca0e-4202-ba4b-a0afb969c747', domain: '', port: '443', s5: '', proxyIp: '', fallbackTimeout: '1000' };
 			}
 		};
 
@@ -94,7 +83,7 @@ export default {
 			const s5Param = u.searchParams.get('s5');
 			const proxyParam = u.searchParams.get('proxyip');
 			const path = s5Param ? s5Param : u.pathname.slice(1);
-			const PROXY_FIRST_BYTE_TIMEOUT_MS = +(userConfig.proxyTimeout || 800);
+			const PROXY_FIRST_BYTE_TIMEOUT_MS = +(userConfig.fallbackTimeout || 1000);
 
 			// 解析SOCKS5和ProxyIP（支持 user:pass@host:port 或 host:port）
 			const socks5 = (() => {
@@ -102,8 +91,8 @@ export default {
 				if (!src) return null;
 				if (src.includes('@')) {
 					const [cred, server] = src.split('@');
-					const [user, pass] = cred.split(':');
-					const [host, port = 443] = server.split(':');
+				const [user, pass] = cred.split(':');
+				const [host, port = 443] = server.split(':');
 					return { user, pass, host, port: +port };
 				}
 				const [host, port = 443] = src.split(':');
@@ -274,29 +263,10 @@ export default {
 						return udpWriter.write(payload);
 					}
 
-					// TCP连接
+					// TCP连接（统一首字节探测与回退规则）
 					let sock = null;
 					let handledInline = false;
-					for (const method of getOrder()) {
-						try {
-							if (method === 'direct') {
-								sock = connect({
-									hostname: addr,
-									port
-								});
-								await sock.opened;
-								break;
-							} else if (method === 's5' && socks5) {
-								sock = await socks5Connect(addr, port);
-								break;
-							} else if (method === 'proxy' && PROXY_IP) {
-								const [ph, pp = port] = PROXY_IP.split(':');
-								const tentative = connect({
-									hostname: ph,
-									port: +pp || port
-								});
-								await tentative.opened;
-								// 先发首包，再在限定时间内等待首字节返回
+					const probeAndAdopt = async (tentative) => {
 								const tw = tentative.writable.getWriter();
 								await tw.write(payload);
 								tw.releaseLock();
@@ -311,30 +281,20 @@ export default {
 								if (!first || first.timeout || first.done || !first.value || first.value.byteLength === 0) {
 									try { reader.releaseLock(); } catch {}
 									try { tentative.close(); } catch {}
-									// 超时/无返回，回退到下一个出站
-									continue;
+							return false;
 								}
-								// 额外检查：如果看起来是 HTTP 文本或 TLS Alert，也判定为无效并回退
-								{
 									const chunk = new Uint8Array(first.value);
-									const looksHTTP = chunk.length >= 5 && chunk[0] === 0x48 && chunk[1] === 0x54 && chunk[2] === 0x54 && chunk[3] === 0x50 && chunk[4] === 0x2f; // 'HTTP/'
-									const looksHTML = chunk.length >= 1 && (chunk[0] === 0x3c /* '<' */);
-									const isTLSAlert = chunk.length >= 1 && chunk[0] === 0x15; // TLS Alert content type
+						const looksHTTP = chunk.length >= 5 && chunk[0] === 0x48 && chunk[1] === 0x54 && chunk[2] === 0x54 && chunk[3] === 0x50 && chunk[4] === 0x2f;
+						const looksHTML = chunk.length >= 1 && (chunk[0] === 0x3c);
+						const isTLSAlert = chunk.length >= 1 && chunk[0] === 0x15;
 									if (looksHTTP || looksHTML || isTLSAlert) {
 										try { reader.releaseLock(); } catch {}
 										try { tentative.close(); } catch {}
-										continue;
-									}
+							return false;
 								}
-								// 确认采用 proxy 通道，已读的首块立即转发
 								sock = tentative;
 								remote = sock;
-								let sentFirst = false;
-								if (ws.readyState === 1) {
-									ws.send(new Uint8Array([...header, ...new Uint8Array(first.value)]));
-									sentFirst = true;
-								}
-								// 持续转发后续数据
+						if (ws.readyState === 1) ws.send(new Uint8Array([...header, ...chunk]));
 								(async () => {
 									try {
 										for (;;) {
@@ -343,12 +303,25 @@ export default {
 											if (ws.readyState === 1) ws.send(value);
 										}
 									} catch {}
-									finally {
-										ws.readyState === 1 && ws.close();
-									}
+							finally { ws.readyState === 1 && ws.close(); }
 								})();
 								handledInline = true;
-								break;
+						return true;
+					};
+					for (const method of getOrder()) {
+						try {
+							if (method === 'direct') {
+								const tentative = connect({ hostname: addr, port });
+								await tentative.opened;
+								if (await probeAndAdopt(tentative)) break; else continue;
+							} else if (method === 's5' && socks5) {
+								const tentative = await socks5Connect(addr, port);
+								if (await probeAndAdopt(tentative)) break; else continue;
+							} else if (method === 'proxy' && PROXY_IP) {
+								const [ph, pp = port] = PROXY_IP.split(':');
+								const tentative = connect({ hostname: ph, port: +pp || port });
+								await tentative.opened;
+								if (await probeAndAdopt(tentative)) break; else continue;
 							}
 						} catch {}
 					}
@@ -429,8 +402,61 @@ export default {
 				if (inputUUID !== userConfig.uuid) {
 					return new Response('UUID错误，无权访问配置管理', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 				}
-				const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>配置管理 - ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;min-height:100vh;padding:20px}.container{max-width:800px;margin:0 auto}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:32px;margin-bottom:20px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"],input[type="number"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus,input[type="number"]:focus{outline:none;border-color:#2f6fed}.button-group{display:flex;gap:12px;flex-wrap:wrap}button{background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;flex:1;min-width:120px}button:hover{background:#1e5bb8}button.secondary{background:#24304f}button.secondary:hover{background:#2a3a5a}.message{margin-top:12px;padding:12px;border-radius:8px;text-align:center;font-size:14px}.success{background:#1a4d1a;border:1px solid #2d7a2d;color:#90ee90}.error{background:#4d1a1a;border:1px solid #7a2d2d;color:#ff6b6b}.back-link{display:inline-flex;align-items:center;gap:8px;color:#2f6fed;text-decoration:none;margin-bottom:20px}.back-link:hover{text-decoration:underline}</style></head><body><div class="container"><a href="/${userConfig.uuid}" class="back-link">← 返回节点界面</a><div class="card"><h1>配置管理</h1><form id="configForm"><div class="form-group"><label for="uuid">UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入UUID"></div><div class="form-group"><label for="domain">优选域名(可选)</label><input type="text" id="domain" name="domain" placeholder="自定义域名"></div><div class="form-group"><label for="port">端口(可选)</label><input type="number" id="port" name="port" value="443" min="1" max="65535"></div><div class="form-group"><label for="s5">SOCKS5代理 (可选)</label><input type="text" id="s5" name="s5" placeholder="格式: user:pass@host:port或host:port"></div><div class="form-group"><label for="proxyIp">ProxyIP (可选)</label><input type="text" id="proxyIp" name="proxyIp" placeholder="格式: host:port或host"></div><div class="form-group"><label for="proxyTimeout">ProxyIp回退时间(毫秒)</label><input type="number" id="proxyTimeout" name="proxyTimeout" value="800" min="100" max="10000"></div><div class="button-group"><button type="submit">保存配置</button><button type="button" class="secondary" onclick="loadConfig()">重新加载</button></div><div id="message" class="message" style="display:none"></div></form></div></div><script>async function loadConfig(){try{const response=await fetch('/api/config');if(response.ok){const config=await response.json();document.getElementById('uuid').value=config.uuid||'';document.getElementById('domain').value=config.domain||'';document.getElementById('port').value=config.port||443;document.getElementById('s5').value=config.s5||'';document.getElementById('proxyIp').value=config.proxyIp||'';document.getElementById('proxyTimeout').value=config.proxyTimeout||800;showMessage('配置加载成功','success');}else{showMessage('配置加载失败','error');}}catch(error){showMessage('配置加载失败','error');}}async function saveConfig(formData){try{const config={uuid:formData.get('uuid'),domain:formData.get('domain'),port:formData.get('port'),s5:formData.get('s5'),proxyIp:formData.get('proxyIp'),proxyTimeout:formData.get('proxyTimeout')};const response=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});const result=await response.json();if(response.ok){showMessage(result.message||'配置保存成功','success');}else{showMessage(result.error||'配置保存失败','error');}}catch(error){showMessage('配置保存失败','error');}}function showMessage(text,type){const messageDiv=document.getElementById('message');messageDiv.textContent=text;messageDiv.className='message '+type;messageDiv.style.display='block';setTimeout(()=>{messageDiv.style.display='none';},3000);}document.getElementById('configForm').addEventListener('submit',function(e){e.preventDefault();const formData=new FormData(this);saveConfig(formData);});loadConfig();</script></body></html>`;
+				const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>配置管理 - ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;min-height:100vh;padding:20px}.container{max-width:800px;margin:0 auto}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:32px;margin-bottom:20px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"],input[type="number"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus,input[type="number"]:focus{outline:none;border-color:#2f6fed}.button-group{display:flex;gap:12px;flex-wrap:wrap}button{background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;flex:1;min-width:120px}button:hover{background:#1e5bb8}button.secondary{background:#24304f}button.secondary:hover{background:#2a3a5a}.message{margin-top:12px;padding:12px;border-radius:8px;text-align:center;font-size:14px}.success{background:#1a4d1a;border:1px solid #2d7a2d;color:#90ee90}.error{background:#4d1a1a;border:1px solid #7a2d2d;color:#ff6b6b}.back-link{display:inline-flex;align-items:center;gap:8px;color:#2f6fed;text-decoration:none;margin-bottom:20px}.back-link:hover{text-decoration:underline}.chip{padding:6px 10px;font-size:12px;min-width:auto;flex:none}.spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;margin-right:6px;vertical-align:-2px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="container"><a href="/${userConfig.uuid}" class="back-link">← 返回节点界面</a><div class="card"><h1>配置管理</h1><form id="configForm"><div class="form-group"><label for="uuid">UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入UUID"></div><div class="form-group"><label for="domain">优选域名(可选)</label><input type="text" id="domain" name="domain" placeholder="自定义域名"></div><div class="form-group"><label for="port">端口(可选)</label><input type="number" id="port" name="port" value="443" min="1" max="65535"></div><div class="form-group"><label for="s5">SOCKS5代理 (可选)</label><div style="display:flex;gap:8px;"><input type="text" id="s5" name="s5" placeholder="格式: user:pass@host:port或host:port" style="flex:1;"><button type="button" id="probeS5" class="secondary chip">检测</button></div></div><div class="form-group"><label for="proxyIp">ProxyIP (可选)</label><div style="display:flex;gap:8px;"><input type="text" id="proxyIp" name="proxyIp" placeholder="格式: host:port或host" style="flex:1;"><button type="button" id="probeProxy" class="secondary chip">检测</button></div></div><div class="form-group"><label for="fallbackTimeout">回退探测时间(毫秒)</label><input type="number" id="fallbackTimeout" name="fallbackTimeout" value="1000" min="100" max="10000"></div><div class="button-group"><button type="submit">保存配置</button><button type="button" class="secondary" onclick="loadConfig()">重新加载</button></div><div id="message" class="message" style="display:none"></div></form></div></div><script>async function loadConfig(){try{const response=await fetch('/api/config');if(response.ok){const config=await response.json();document.getElementById('uuid').value=config.uuid||'';document.getElementById('domain').value=config.domain||'';document.getElementById('port').value=config.port||443;document.getElementById('s5').value=config.s5||'';document.getElementById('proxyIp').value=config.proxyIp||'';document.getElementById('fallbackTimeout').value=(config.fallbackTimeout||config.proxyTimeout||1000);showMessage('配置加载成功','success');}else{showMessage('配置加载失败','error');}}catch(error){showMessage('配置加载失败','error');}}async function saveConfig(formData){try{const config={uuid:formData.get('uuid'),domain:formData.get('domain'),port:formData.get('port'),s5:formData.get('s5'),proxyIp:formData.get('proxyIp'),fallbackTimeout:formData.get('fallbackTimeout')};const response=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});const result=await response.json();if(response.ok){showMessage(result.message||'配置保存成功','success');}else{showMessage(result.error||'配置保存失败','error');}}catch(error){showMessage('配置保存失败','error');}}function showMessage(text,type){const messageDiv=document.getElementById('message');messageDiv.textContent=text;messageDiv.className='message '+type;messageDiv.style.display='block';setTimeout(()=>{messageDiv.style.display='none';},3000);}document.addEventListener('DOMContentLoaded',()=>{const s5Btn=document.getElementById('probeS5');const pxBtn=document.getElementById('probeProxy');const runProbe=async(btn, url, label)=>{if(!btn)return;const orig=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spinner"></span>'+label;let res;try{const r=await fetch(url);res=await r.json();}catch{res={ok:false,message:'接口错误'};}btn.disabled=false;btn.innerHTML='检测';return res;};if(s5Btn){s5Btn.addEventListener('click', async (e)=>{e.preventDefault();const tEl=document.getElementById('fallbackTimeout');const timeout=Number(tEl&&tEl.value)||1000;const valEl=document.getElementById('s5');const val=(valEl&&valEl.value||'').trim();const q= val?('&s5='+encodeURIComponent(val)):'';const res=await runProbe(s5Btn, '/api/probe?type=s5&timeout='+timeout+q, '检测中');showMessage('SOCKS5：'+(res.ok?'可用':'不可用')+'（'+(res.ms||'-')+'ms） '+(res.message||''),res.ok?'success':'error');});}
+if(pxBtn){pxBtn.addEventListener('click', async (e)=>{e.preventDefault();const tEl=document.getElementById('fallbackTimeout');const timeout=Number(tEl&&tEl.value)||1000;const valEl=document.getElementById('proxyIp');const val=(valEl&&valEl.value||'').trim();const q= val?('&proxyip='+encodeURIComponent(val)):'';const res=await runProbe(pxBtn, '/api/probe?type=proxyip&timeout='+timeout+q, '检测中');showMessage('ProxyIP：'+(res.ok?'可用':'不可用')+'（'+(res.ms||'-')+'ms） '+(res.message||''),res.ok?'success':'error');});}});document.getElementById('configForm').addEventListener('submit',function(e){e.preventDefault();const formData=new FormData(this);saveConfig(formData);});loadConfig();</script></body></html>`;
 				return new Response(html, {headers:{'content-type':'text/html; charset=utf-8'}});
+			}
+		}
+
+		if (url.pathname === '/api/probe') {
+			const params = url.searchParams;
+			const type = params.get('type');
+			const tStr = params.get('timeout');
+			const timeoutMs = Math.max(50, Math.min(20000, +(tStr || 0) || (await getUserConfig()).fallbackTimeout || 1000));
+			const started = Date.now();
+			try {
+				if (type === 'proxyip') {
+					const raw = params.get('proxyip') || (await getUserConfig()).proxyIp || '';
+					if (!raw) return json({ ok: false, ms: 0, message: '未填写 ProxyIP' }, 400);
+					const [host, p] = raw.split(':');
+					const port = +(p || 443);
+					const sock = connect({ hostname: host, port });
+					const openRes = await Promise.race([sock.opened.then(()=> 'ok'), new Promise((r)=>setTimeout(()=>r('timeout'), timeoutMs))]);
+					if (openRes !== 'ok') { try{sock.close();}catch{} return json({ ok:false, ms: Date.now()-started, message:'连接超时' }, 408); }
+					try{sock.close();}catch{}
+					return json({ ok:true, ms: Date.now()-started, message:'可用' });
+				}
+				if (type === 's5') {
+					const raw = params.get('s5') || (await getUserConfig()).s5 || '';
+					if (!raw) return json({ ok: false, ms: 0, message: '未填写 SOCKS5' }, 400);
+					// parse s5
+					let user='', pass='', host='', port=443;
+					if (raw.includes('@')) { const [cred, server] = raw.split('@'); [user, pass] = cred.split(':'); [host, port] = server.split(':'); }
+					else { [host, port] = raw.split(':'); }
+					port = +(port||443);
+					const sock = connect({ hostname: host, port });
+					await Promise.race([sock.opened, new Promise((r)=>setTimeout(()=>r('timeout'), timeoutMs))]);
+					const w = sock.writable.getWriter();
+					const r = sock.readable.getReader();
+					await w.write(new Uint8Array([5, 2, 0, 2]));
+					const methodResp = await Promise.race([r.read(), new Promise((r2)=>setTimeout(()=>r2({ timeout:true } ), timeoutMs))]);
+					if (!methodResp || methodResp.timeout || !methodResp.value) { try{r.releaseLock(); w.releaseLock(); sock.close();}catch{} return json({ ok:false, ms: Date.now()-started, message:'握手超时' }, 408); }
+					if (methodResp.value[1] === 2 && user) {
+						const ue = new TextEncoder().encode(user);
+						const pe = new TextEncoder().encode(pass||'');
+						await w.write(new Uint8Array([1, ue.length, ...ue, pe.length, ...pe]));
+						await r.read();
+					}
+					const dom = new TextEncoder().encode('example.com');
+					await w.write(new Uint8Array([5,1,0,3,dom.length, ...dom, 443>>8, 443 & 0xff]));
+					const connResp = await Promise.race([r.read(), new Promise((r2)=>setTimeout(()=>r2({ timeout:true } ), timeoutMs))]);
+					try{r.releaseLock(); w.releaseLock(); sock.close();}catch{}
+					if (!connResp || connResp.timeout || !connResp.value) return json({ ok:false, ms: Date.now()-started, message:'CONNECT 超时' }, 408);
+					return json({ ok:true, ms: Date.now()-started, message:'可用' });
+				}
+				return json({ ok:false, ms:0, message:'type 参数无效' }, 400);
+			} catch (e) {
+				return json({ ok:false, ms: Date.now()-started, message:'探测失败' }, 500);
 			}
 		}
 
