@@ -1,6 +1,5 @@
 # ZQ-NewVless
 
-一个基于Cloudflare Workers的VLESS代理服务，支持多种出站方式和Web界面配置管理。
 ![页面](src/3.png)
 ![页面](src/4.png)
 
