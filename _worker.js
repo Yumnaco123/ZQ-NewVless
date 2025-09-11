@@ -70,6 +70,17 @@ export default {
 			return variants;
 		};
 
+		const getHostAndPort = (request, cfg) => {
+			const workerHost = new URL(request.url).hostname;
+			const preferred = cfg.domain || workerHost;
+			const port = +(cfg.port || 443);
+			return { workerHost, preferred, port };
+		};
+
+		const text = (body, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+
+		const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8' } });
+
 
 		if (req.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
 			const [client, ws] = Object.values(new WebSocketPair());
@@ -85,18 +96,20 @@ export default {
 			const path = s5Param ? s5Param : u.pathname.slice(1);
 			const PROXY_FIRST_BYTE_TIMEOUT_MS = +(userConfig.proxyTimeout || 800);
 
-			// 解析SOCKS5和ProxyIP
-			const socks5 = path.includes('@') ? (() => {
-				const [cred, server] = path.split('@');
-				const [user, pass] = cred.split(':');
-				const [host, port = 443] = server.split(':');
-				return {
-					user,
-					pass,
-					host,
-					port: +port
-				};
-			})() : null;
+			// 解析SOCKS5和ProxyIP（支持 user:pass@host:port 或 host:port）
+			const socks5 = (() => {
+				const src = s5Param || '';
+				if (!src) return null;
+				if (src.includes('@')) {
+					const [cred, server] = src.split('@');
+					const [user, pass] = cred.split(':');
+					const [host, port = 443] = server.split(':');
+					return { user, pass, host, port: +port };
+				}
+				const [host, port = 443] = src.split(':');
+				if (!host) return null;
+				return { user: '', pass: '', host, port: +port };
+			})();
 			const PROXY_IP = proxyParam ? String(proxyParam) : null;
 
 			// auto模式参数顺序（按URL参数位置）
@@ -127,9 +140,10 @@ export default {
 				await sock.opened;
 				const w = sock.writable.getWriter();
 				const r = sock.readable.getReader();
+				// 请求方法: 无认证(0x00) 与 用户名口令(0x02)
 				await w.write(new Uint8Array([5, 2, 0, 2]));
 				const auth = (await r.read()).value;
-				if (auth[1] === 2 && socks5.user) {
+				if (auth[1] === 2 && socks5.user && socks5.user.length > 0) {
 					const user = new TextEncoder().encode(socks5.user);
 					const pass = new TextEncoder().encode(socks5.pass);
 					await w.write(new Uint8Array([1, user.length, ...user, pass.length, ...pass]));
@@ -378,48 +392,31 @@ export default {
 		if (url.pathname.startsWith('/subraw')) {
 			const parts = url.pathname.split('/').filter(p => p);
 			const inputUUID = url.searchParams.get('uuid') || parts[1];
-			if (!inputUUID) {
-				return new Response('missing uuid', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-			}
+			if (!inputUUID) return text('missing uuid', 400);
 			const userConfig = await getUserConfig();
-			if (inputUUID !== userConfig.uuid) {
-				return new Response('UUID错误，请检查后重新输入', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-			}
-			const requestUrl = new URL(req.url);
-			const workerHost = requestUrl.hostname;
-			const preferred = userConfig.domain || workerHost;
-			const port = +(userConfig.port || 443);
+			if (inputUUID !== userConfig.uuid) return text('UUID错误，请检查后重新输入', 400);
+			const { workerHost, preferred, port } = getHostAndPort(req, userConfig);
 			const variants = buildVariants(userConfig.s5, userConfig.proxyIp);
 			const lines = variants.map(v => buildVlessUri(v.raw, userConfig.uuid, v.label, workerHost, preferred, port, userConfig.s5, userConfig.proxyIp)).join('\n');
-			return new Response(lines + '\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+			return text(lines + '\n');
 		}
 
 		if (url.pathname === '/api/config') {
 			if (req.method === 'GET') {
 				const config = await getUserConfig();
-				return new Response(JSON.stringify(config), {
-					headers: { 'content-type': 'application/json; charset=utf-8' }
-				});
+				return json(config);
 			} else if (req.method === 'POST') {
 				try {
 					const newConfig = await req.json();
 					if (!newConfig.uuid || typeof newConfig.uuid !== 'string') {
-						return new Response(JSON.stringify({ error: 'UUID不能为空' }), {
-							status: 400,
-							headers: { 'content-type': 'application/json; charset=utf-8' }
-						});
+						return json({ error: 'UUID不能为空' }, 400);
 					}
 					if (env.NewVless) {
 						await env.NewVless.put('user_config', JSON.stringify(newConfig));
 					}
-					return new Response(JSON.stringify({ success: true, message: '配置保存成功' }), {
-						headers: { 'content-type': 'application/json; charset=utf-8' }
-					});
+					return json({ success: true, message: '配置保存成功' });
 				} catch (error) {
-					return new Response(JSON.stringify({ error: '配置保存失败' }), {
-						status: 500,
-						headers: { 'content-type': 'application/json; charset=utf-8' }
-					});
+					return json({ error: '配置保存失败' }, 500);
 				}
 			}
 		}
@@ -432,7 +429,7 @@ export default {
 				if (inputUUID !== userConfig.uuid) {
 					return new Response('UUID错误，无权访问配置管理', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 				}
-				const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>配置管理 - ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;min-height:100vh;padding:20px}.container{max-width:800px;margin:0 auto}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:32px;margin-bottom:20px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"],input[type="number"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus,input[type="number"]:focus{outline:none;border-color:#2f6fed}.button-group{display:flex;gap:12px;flex-wrap:wrap}button{background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;flex:1;min-width:120px}button:hover{background:#1e5bb8}button.secondary{background:#24304f}button.secondary:hover{background:#2a3a5a}.message{margin-top:12px;padding:12px;border-radius:8px;text-align:center;font-size:14px}.success{background:#1a4d1a;border:1px solid #2d7a2d;color:#90ee90}.error{background:#4d1a1a;border:1px solid #7a2d2d;color:#ff6b6b}.back-link{display:inline-flex;align-items:center;gap:8px;color:#2f6fed;text-decoration:none;margin-bottom:20px}.back-link:hover{text-decoration:underline}</style><script async src="https://www.googletagmanager.com/gtag/js?id=G-XVCDLBWM20"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config','G-XVCDLBWM20');</script></head><body><div class="container"><a href="/${userConfig.uuid}" class="back-link">← 返回节点界面</a><div class="card"><h1>配置管理</h1><form id="configForm"><div class="form-group"><label for="uuid">UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入UUID"></div><div class="form-group"><label for="domain">优选域名(可选)</label><input type="text" id="domain" name="domain" placeholder="自定义域名"></div><div class="form-group"><label for="port">端口(可选)</label><input type="number" id="port" name="port" value="443" min="1" max="65535"></div><div class="form-group"><label for="s5">SOCKS5代理 (可选)</label><input type="text" id="s5" name="s5" placeholder="格式: user:pass@host:port或host:port"></div><div class="form-group"><label for="proxyIp">ProxyIP (可选)</label><input type="text" id="proxyIp" name="proxyIp" placeholder="格式: host:port或host"></div><div class="form-group"><label for="proxyTimeout">ProxyIp回退时间(毫秒)</label><input type="number" id="proxyTimeout" name="proxyTimeout" value="800" min="100" max="10000"></div><div class="button-group"><button type="submit">保存配置</button><button type="button" class="secondary" onclick="loadConfig()">重新加载</button></div><div id="message" class="message" style="display:none"></div></form></div></div><script>async function loadConfig(){try{const response=await fetch('/api/config');if(response.ok){const config=await response.json();document.getElementById('uuid').value=config.uuid||'';document.getElementById('domain').value=config.domain||'';document.getElementById('port').value=config.port||443;document.getElementById('s5').value=config.s5||'';document.getElementById('proxyIp').value=config.proxyIp||'';document.getElementById('proxyTimeout').value=config.proxyTimeout||800;showMessage('配置加载成功','success');}else{showMessage('配置加载失败','error');}}catch(error){showMessage('配置加载失败','error');}}async function saveConfig(formData){try{const config={uuid:formData.get('uuid'),domain:formData.get('domain'),port:formData.get('port'),s5:formData.get('s5'),proxyIp:formData.get('proxyIp'),proxyTimeout:formData.get('proxyTimeout')};const response=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});const result=await response.json();if(response.ok){showMessage(result.message||'配置保存成功','success');}else{showMessage(result.error||'配置保存失败','error');}}catch(error){showMessage('配置保存失败','error');}}function showMessage(text,type){const messageDiv=document.getElementById('message');messageDiv.textContent=text;messageDiv.className='message '+type;messageDiv.style.display='block';setTimeout(()=>{messageDiv.style.display='none';},3000);}document.getElementById('configForm').addEventListener('submit',function(e){e.preventDefault();const formData=new FormData(this);saveConfig(formData);});loadConfig();</script></body></html>`;
+				const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>配置管理 - ZQ-NewVless</title><link rel="icon" type="image/png" href="https://img.520jacky.dpdns.org/i/2025/06/03/551258.png"><style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;margin:0;background:#0b1020;color:#e6e9ef;min-height:100vh;padding:20px}.container{max-width:800px;margin:0 auto}.card{background:#12182e;border:1px solid #24304f;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:32px;margin-bottom:20px}h1{margin:0 0 20px;font-size:24px;text-align:center}.form-group{margin-bottom:20px}label{display:block;margin-bottom:8px;font-weight:600}input[type="text"],input[type="number"]{width:100%;padding:12px;border:1px solid #24304f;border-radius:8px;background:#0e1427;color:#e6e9ef;font-size:16px;box-sizing:border-box}input[type="text"]:focus,input[type="number"]:focus{outline:none;border-color:#2f6fed}.button-group{display:flex;gap:12px;flex-wrap:wrap}button{background:#2f6fed;color:#fff;border:none;border-radius:8px;padding:12px 24px;font-size:16px;font-weight:600;cursor:pointer;flex:1;min-width:120px}button:hover{background:#1e5bb8}button.secondary{background:#24304f}button.secondary:hover{background:#2a3a5a}.message{margin-top:12px;padding:12px;border-radius:8px;text-align:center;font-size:14px}.success{background:#1a4d1a;border:1px solid #2d7a2d;color:#90ee90}.error{background:#4d1a1a;border:1px solid #7a2d2d;color:#ff6b6b}.back-link{display:inline-flex;align-items:center;gap:8px;color:#2f6fed;text-decoration:none;margin-bottom:20px}.back-link:hover{text-decoration:underline}</style></head><body><div class="container"><a href="/${userConfig.uuid}" class="back-link">← 返回节点界面</a><div class="card"><h1>配置管理</h1><form id="configForm"><div class="form-group"><label for="uuid">UUID</label><input type="text" id="uuid" name="uuid" required placeholder="请输入UUID"></div><div class="form-group"><label for="domain">优选域名(可选)</label><input type="text" id="domain" name="domain" placeholder="自定义域名"></div><div class="form-group"><label for="port">端口(可选)</label><input type="number" id="port" name="port" value="443" min="1" max="65535"></div><div class="form-group"><label for="s5">SOCKS5代理 (可选)</label><input type="text" id="s5" name="s5" placeholder="格式: user:pass@host:port或host:port"></div><div class="form-group"><label for="proxyIp">ProxyIP (可选)</label><input type="text" id="proxyIp" name="proxyIp" placeholder="格式: host:port或host"></div><div class="form-group"><label for="proxyTimeout">ProxyIp回退时间(毫秒)</label><input type="number" id="proxyTimeout" name="proxyTimeout" value="800" min="100" max="10000"></div><div class="button-group"><button type="submit">保存配置</button><button type="button" class="secondary" onclick="loadConfig()">重新加载</button></div><div id="message" class="message" style="display:none"></div></form></div></div><script>async function loadConfig(){try{const response=await fetch('/api/config');if(response.ok){const config=await response.json();document.getElementById('uuid').value=config.uuid||'';document.getElementById('domain').value=config.domain||'';document.getElementById('port').value=config.port||443;document.getElementById('s5').value=config.s5||'';document.getElementById('proxyIp').value=config.proxyIp||'';document.getElementById('proxyTimeout').value=config.proxyTimeout||800;showMessage('配置加载成功','success');}else{showMessage('配置加载失败','error');}}catch(error){showMessage('配置加载失败','error');}}async function saveConfig(formData){try{const config={uuid:formData.get('uuid'),domain:formData.get('domain'),port:formData.get('port'),s5:formData.get('s5'),proxyIp:formData.get('proxyIp'),proxyTimeout:formData.get('proxyTimeout')};const response=await fetch('/api/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});const result=await response.json();if(response.ok){showMessage(result.message||'配置保存成功','success');}else{showMessage(result.error||'配置保存失败','error');}}catch(error){showMessage('配置保存失败','error');}}function showMessage(text,type){const messageDiv=document.getElementById('message');messageDiv.textContent=text;messageDiv.className='message '+type;messageDiv.style.display='block';setTimeout(()=>{messageDiv.style.display='none';},3000);}document.getElementById('configForm').addEventListener('submit',function(e){e.preventDefault();const formData=new FormData(this);saveConfig(formData);});loadConfig();</script></body></html>`;
 				return new Response(html, {headers:{'content-type':'text/html; charset=utf-8'}});
 			}
 		}
@@ -441,23 +438,16 @@ export default {
 		if (url.pathname.startsWith('/sub')) {
 			const parts = url.pathname.split('/').filter(p => p);
 			const inputUUID = url.searchParams.get('uuid') || parts[1];
-			if (!inputUUID) {
-				return new Response('missing uuid', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-			}
+			if (!inputUUID) return text('missing uuid', 400);
 			
 			// Get user config
 			const userConfig = await getUserConfig();
-			if (inputUUID !== userConfig.uuid) {
-				return new Response('UUID错误，请检查后重新输入', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-			}
-				const requestUrl = new URL(req.url);
-				const workerHost = requestUrl.hostname;
-			const preferred = userConfig.domain || workerHost;
-			const port = +(userConfig.port || 443);
+			if (inputUUID !== userConfig.uuid) return text('UUID错误，请检查后重新输入', 400);
+			const { workerHost, preferred, port } = getHostAndPort(req, userConfig);
 			const variants = buildVariants(userConfig.s5, userConfig.proxyIp);
 			const lines = variants.map(v => buildVlessUri(v.raw, userConfig.uuid, v.label, workerHost, preferred, port, userConfig.s5, userConfig.proxyIp)).join('\n');
 			const b64 = btoa(unescape(encodeURIComponent(lines)));
-			return new Response(b64 + '\n', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+			return text(b64 + '\n');
 		}
 
 		// UUID input interface at root
@@ -486,10 +476,7 @@ export default {
 			const origin = new URL(req.url).origin;
 			const subUrl = `${origin}/sub/${userUUID}`;
 			
-			const reqUrl2 = new URL(req.url);
-			const workerHost2 = reqUrl2.hostname;
-			const preferred2 = userConfig.domain || workerHost2;
-			const port2 = +(userConfig.port || 443);
+			const { workerHost: workerHost2, preferred: preferred2, port: port2 } = getHostAndPort(req, userConfig);
 			const variants = buildVariants(userConfig.s5, userConfig.proxyIp);
 			const itemsHtml = variants.map(v=>{
 				const full = buildVlessUri(v.raw, userUUID, v.label, workerHost2, preferred2, port2, userConfig.s5, userConfig.proxyIp);
