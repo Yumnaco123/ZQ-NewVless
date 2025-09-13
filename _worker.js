@@ -15,7 +15,7 @@ export default {
 				if (!merged.fallbackTimeout && merged.proxyTimeout) merged.fallbackTimeout = merged.proxyTimeout;
 				return merged;
 			} catch {
-				return { uuid: '882f016e-aa5b-4398-a39e-8d593300a760', domain: '', port: '443', s5: '', proxyIp: '', fallbackTimeout: '1000' };
+				return { uuid: 'ef9d104e-ca0e-4202-ba4b-a0afb969c747', domain: '', port: '443', s5: '', proxyIp: '', fallbackTimeout: '1000' };
 			}
 		};
 
