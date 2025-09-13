@@ -22,14 +22,14 @@ export default {
 		const buildVlessUri = (customRawPathQuery, uuid, label, workerHost, preferredDomain, port, s5, proxyIp) => {
 			let rawPathQuery = customRawPathQuery;
 			if (!rawPathQuery) {
-				rawPathQuery = '/?mode=direct';
+				rawPathQuery = '/172.232.238.56-443';
 				if (s5 || proxyIp) {
 					const params = [];
 					params.push('mode=auto');
 					params.push('direct');
 					if (s5) params.push('s5=' + encodeURIComponent(String(s5)));
 					if (proxyIp) params.push('proxyip=' + encodeURIComponent(String(proxyIp)));
-					rawPathQuery = '/?' + params.join('&');
+					rawPathQuery = '/172.232.238.56' + params.join('&');
 				}
 			}
 			const path = encodeURIComponent(rawPathQuery);
@@ -40,7 +40,7 @@ export default {
 
 		const buildVariants = (s5, proxyIp) => {
 			const variants = [];
-			variants.push({ label: '仅直连', raw: '/?mode=direct' });
+			variants.push({ label: '仅直连', raw: '/172.232.238.56-443' });
 			if (s5) variants.push({ label: '仅SOCKS5', raw: `/?mode=s5&s5=${String(s5)}` });
 			if (s5) variants.push({ label: '直连优先，回退SOCKS5', raw: `/?mode=auto&direct&s5=${String(s5)}` });
 			if (s5) variants.push({ label: 'SOCKS5优先，回退直连', raw: `/?mode=auto&s5=${String(s5)}&direct` });
